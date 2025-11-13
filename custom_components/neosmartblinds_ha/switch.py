@@ -82,15 +82,15 @@ class NeoSmartScheduleSwitch(SwitchEntity):
         self._time = schedule_data.get("time", "")
         self._type = schedule_data.get("type", "TIME")
         
-        self._attr_name = f"Schedule: {self._room_name} {COMMAND_MAP.get(self._command, self._command)} at {self._time}"
+        # Changed name format to be less confusing.
+        self._attr_name = f"Schedule ({self._room_name} {COMMAND_MAP.get(self._command, self._command)} at {self._time})"
         if self._type == "SUNSET":
             self._attr_name += " (Sunset)"
             
         self._attr_is_on = schedule_data.get("enabled", False)
         
-        # --- ADDED ICON LOGIC ---
-        self._attr_icon = COMMAND_ICON_MAP.get(self._command)
-        # --- END ADDED ---
+        # Set icon based on command, default to a calendar clock
+        self._attr_icon = COMMAND_ICON_MAP.get(self._command, "mdi:calendar-clock")
         
         self._attr_extra_state_attributes = {
             "schedule_id": self._schedule_id,
@@ -124,7 +124,7 @@ class NeoSmartScheduleSwitch(SwitchEntity):
         """Enable the schedule."""
         if await self._cloud_api.async_set_schedule_state(self._schedule_id, True):
             self._attr_is_on = True
-            self.async_write_ha_state() # <-- This was already correct!
+            self.async_write_ha_state() 
         else:
             _LOGGER.warning("Failed to enable schedule '%s'.", self.name)
 
@@ -132,6 +132,6 @@ class NeoSmartScheduleSwitch(SwitchEntity):
         """Disable the schedule."""
         if await self._cloud_api.async_set_schedule_state(self._schedule_id, False):
             self._attr_is_on = False
-            self.async_write_ha_state() # <-- This was already correct!
+            self.async_write_ha_state() 
         else:
             _LOGGER.warning("Failed to disable schedule '%s'.", self.name)
