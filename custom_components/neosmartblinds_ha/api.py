@@ -4,7 +4,7 @@ import logging
 import base64
 import json
 import time
-import random # Keep random for a fallback
+import random
 
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
@@ -25,6 +25,34 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 15.0
+
+
+def _get_friendly_command_name(command: str) -> str:
+    """Translate a command code to a friendly name."""
+    
+    cmd_map = {
+        "up": "Open",
+        "dn": "Close",
+        "sp": "Stop",
+        "i1": "Favorite 1",
+        "i2": "Favorite 2",
+        "gp": "Favorite (GP)",
+        "cl": "Close", # From your log data
+        "u4": "Middle Up",
+        "d4": "Middle Down",
+        "u2": "Lower Up",
+        "d2": "Lower Down"
+    }
+
+    friendly_name = cmd_map.get(command)
+    if friendly_name:
+        return friendly_name
+        
+    # Check for position command (e.g., "75")
+    if command.isdigit():
+        return f"Position {command}%"
+        
+    return command.upper() # Fallback, e.g., "FAV_1"
 
 class NeoSmartCloudAuthError(ConfigEntryAuthFailed):
     """Exception for authentication errors."""
@@ -65,7 +93,6 @@ class NeoSmartCloudAPI:
             _LOGGER.error("Failed to decode token: %s", err)
             return None
 
-    # --- THIS IS THE CORRECTED HASH ALGORITHM ---
     def _generate_hash(self) -> str:
         """
         Generate the 7-digit hash required by the API.
@@ -73,13 +100,8 @@ class NeoSmartCloudAPI:
         from time.now() in milliseconds."
         """
         try:
-            # 1. Get current time in ms, convert to string
-            #    e.g., "1730908800123"
             time_ms = str(int(time.time() * 1000))
-            
-            # 2. Get last 7 digits. e.g., "800123"
             hash_string = time_ms[-7:]
-            
             _LOGGER.debug("Generated hash: %s", hash_string)
             return hash_string
             
@@ -87,7 +109,6 @@ class NeoSmartCloudAPI:
             _LOGGER.error("Failed to generate hash: %s", err)
             # Fallback to a simple 7-digit random number if logic fails
             return str(random.randint(1000000, 9999999))
-    # --- END OF CORRECTED HASH ALGORITHM ---
 
     async def async_login(self) -> None:
         """Log in to the API and store the auth tokens."""
@@ -106,7 +127,6 @@ class NeoSmartCloudAPI:
         }
 
         try:
-            # Login uses data= (form-encoded)
             response = await self._client.post(API_TOKEN_URL, data=payload, headers=headers, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             
@@ -150,7 +170,6 @@ class NeoSmartCloudAPI:
         
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as refresh_client:
-                # Refresh uses data= (form-encoded)
                 response = await refresh_client.post(API_TOKEN_URL, data=payload, headers=headers)
             
             response.raise_for_status()
@@ -181,15 +200,10 @@ class NeoSmartCloudAPI:
         if not self._access_token:
             await self.async_login()
             
-        # Get existing headers from kwargs or create new dict
         headers = kwargs.get("headers", {})
-        # Add all required headers to this specific request
-        
-        # Changed : to = and added missing quote
         headers["Authorization"] = f"Bearer {self._access_token}"
         headers["Origin"] = "https://app.neosmartblinds.com"
         headers["Referer"] = "https://app.neosmartblinds.com/"
-        
         kwargs["headers"] = headers
             
         try:
@@ -201,7 +215,6 @@ class NeoSmartCloudAPI:
                 if not await self.async_refresh_token():
                     raise NeoSmartCloudAuthError("Token refresh failed")
                 
-                # Re-add the new token to the headers for the retry
                 headers["Authorization"] = f"Bearer {self._access_token}"
                 kwargs["headers"] = headers
                 
@@ -238,15 +251,11 @@ class NeoSmartCloudAPI:
         """Get all user data (blinds, schedules) from the cloud."""
         
         url = f"{API_LOCATION_URL}/{self._user_uuid}"
-        # This is a GET request, so it has no data/json
         response = await self._api_request("GET", url)
         data = response.json()
         
-        # --- DEBUGGING ---
-        # This will log the entire data blob to your HA log.
-        # We can remove this later, but it's useful for now.
+        # This is the debug line you used, it's great.
         _LOGGER.info("Full API data payload: %s", data)
-        # --- END DEBUGGING ---
         
         return data
 
@@ -264,14 +273,9 @@ class NeoSmartCloudAPI:
             _LOGGER.error("Invalid blind_code format: %s", blind_code)
             return False
             
-        # --- Use the correct hash algorithm from the documentation ---
         hash_string = self._generate_hash()
-
-        url = API_COMMAND_URL # This is now .../esp32/multi-transmit
+        url = API_COMMAND_URL
         
-        # --- MODIFIED ---
-        # Payload structure changed to match the HAR file
-        # The {"commands": [...]} wrapper was removed.
         payload = {
             full_id_string: [
                 {
@@ -283,19 +287,14 @@ class NeoSmartCloudAPI:
                 }
             ]
         }
-        # --- END MODIFIED ---
 
-        # --- ADDED LOGGING AS REQUESTED ---
         _LOGGER.info("Sending command to %s with payload: %s", url, payload)
-        # --- END LOGGING ---
 
         try:
-            # Send as JSON (json=), which sets Content-Type: application/json
             await self._api_request("POST", url, json=payload)
             _LOGGER.info("Command sent successfully")
             return True
         except Exception:
-            # Log the payload on failure so it's visible with default logging
             _LOGGER.error("Failed to send command. Payload was: %s", payload, exc_info=True)
             return False
 
@@ -307,7 +306,6 @@ class NeoSmartCloudAPI:
         payload = {"enabled": enabled} 
 
         try:
-            # Schedule updates use json= (application/json)
             await self._api_request("POST", url, json=payload)
             _LOGGER.info("Schedule state set successfully")
             return True
@@ -338,9 +336,7 @@ def parse_blinds_from_data(data: dict) -> list:
             
             blind_name = blind.get("name")
             blind_code = f"{room_token}-{channel.zfill(2)}"
-            
             motor_code = blind.get("motorCode", "unknown") 
-            
             is_tdbu = blind.get("tdbu", False) 
             
             blinds_list.append({
@@ -361,22 +357,39 @@ def parse_schedules_from_data(data: dict) -> list:
     schedules_list = []
     
     schedules = data.get("schedules", {})
-    rooms = data.get("rooms", {})
+    rooms = data.get("rooms", {}) # We get the full room list
     if not schedules:
         _LOGGER.info("No schedules found in API response")
         return []
 
     for schedule_id, schedule in schedules.items():
-        room_id = schedule.get("room")
-        room = rooms.get(room_id, {})
-        room_name = room.get("name", "Unknown Room")
         
-        controller_id = room.get("controller")
+        friendly_name = f"Schedule {schedule_id}" # Start with a fallback
         
+        try:
+            schedule_time = schedule.get("time", "Unknown Time")
+            schedule_cmd = schedule.get("command", "cmd")
+            room_id = schedule.get("room") # This is the link
+
+            room_name = "Unknown Room" # Fallback
+            if room_id and room_id in rooms:
+                room_name = rooms[room_id].get("name", room_name) # e.g., "Master"
+            
+            command_name = _get_friendly_command_name(schedule_cmd) # e.g., "Favorite 1"
+
+            friendly_name = f"{room_name} {command_name} at {schedule_time}"
+        
+        except Exception as e:
+            _LOGGER.warning("Could not parse friendly name for schedule %s: %s", schedule_id, e)
+
         schedule_data = schedule.copy()
         schedule_data["id"] = schedule_id
-        schedule_data["room_name"] = room_name
-        schedule_data["controller_id"] = controller_id
+        
+        if room_id and room_id in rooms:
+            schedule_data["room_name"] = rooms[room_id].get("name", "Unknown")
+            schedule_data["controller_id"] = rooms[room_id].get("controller")
+        
+        schedule_data["name"] = friendly_name
         
         schedules_list.append(schedule_data)
             
