@@ -48,22 +48,22 @@ async def async_setup_entry(
 class NeoSmartCloudCover(CoverEntity):
     """Representation of a Neo Smart Blind (Cloud)."""
     
-    # This entity's name will be the same as the device name
     _attr_has_entity_name = False 
 
     def __init__(self, controller: NeoSmartCloudAPI, blind_data: dict, account_username: str):
         self._controller = controller
-        self._attr_unique_id = blind_data["unique_id"] # This is the main ID
+        self._attr_unique_id = blind_data["unique_id"] # e.g., vkoYKvLYU7qx_109.055-03
         self._blind_code = blind_data["blind_code"]
-        self._controller_id = blind_data["controller_id"]
+        self._controller_id = blind_data["controller_id"] # e.g., vkoYKvLYU7qx
         self._motor_code = blind_data.get("motor_code", "unknown")
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._attr_unique_id)}, # ID'd by the blind itself
-            name=blind_data["name"],
+            name=blind_data["name"], # e.g., "Master left"
             manufacturer="Neo Smart Blinds",
             model=f"Blind (Motor: {self._motor_code.upper()})",
             # This links it "via" the parent controller device
+            # This is the line that was failing, but will now work.
             via_device=(DOMAIN, self._controller_id) 
         )
         
