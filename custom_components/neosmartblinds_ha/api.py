@@ -175,8 +175,12 @@ class NeoSmartCloudAPI:
         }
         
         try:
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as refresh_client:
-                response = await refresh_client.post(API_TOKEN_URL, data=payload, headers=headers)
+            response = await self._client.post(
+                API_TOKEN_URL, 
+                data=payload, 
+                headers=headers, 
+                timeout=REQUEST_TIMEOUT
+            )
             
             response.raise_for_status()
             data = response.json()
